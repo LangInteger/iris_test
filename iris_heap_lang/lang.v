@@ -120,6 +120,8 @@ Inductive expr :=
   (* Prophecy *)
   | NewProph
   | Resolve (e0 : expr) (e1 : expr) (e2 : expr) (* wrapped expr, proph, val *)
+  (* external function call *)
+  | ExternalCall (fn : string) (arg : expr)
 with val :=
   | LitV (l : base_lit)
   | RecV (f x : binder) (e : expr)
@@ -201,6 +203,7 @@ Global Arguments vals_compare_safe !_ !_ /.
 (** The state: heaps of [option val]s, with [None] representing deallocated locations. *)
 Record state : Type := {
   heap: gmap loc (option val);
+  external_heap: gmap loc (option val);
   used_proph_id: gset proph_id;
 }.
 
@@ -444,7 +447,8 @@ Inductive ectx_item :=
   | FaaRCtx (e1 : expr)
   | ResolveLCtx (ctx : ectx_item) (v1 : val) (v2 : val)
   | ResolveMCtx (e0 : expr) (v2 : val)
-  | ResolveRCtx (e0 : expr) (e1 : expr).
+  | ResolveRCtx (e0 : expr) (e1 : expr)
+  | ExternalCall (fn : string) (arg : expr).
 
 (** Contextual closure will only reduce [e] in [Resolve e (Val _) (Val _)] if
 the local context of [e] is non-empty. As a consequence, the first argument of
@@ -484,6 +488,7 @@ Fixpoint fill_item (Ki : ectx_item) (e : expr) : expr :=
   | ResolveLCtx K v1 v2 => Resolve (fill_item K e) (Val v1) (Val v2)
   | ResolveMCtx ex v2 => Resolve ex e (Val v2)
   | ResolveRCtx ex e1 => Resolve ex e1 e
+  | ExternalCallCtx fn => ExternalCall fn e
   end.
 
 (** Substitution *)
@@ -513,6 +518,7 @@ Fixpoint subst (x : string) (v : val) (e : expr)  : expr :=
   | Fork e => Fork (subst x v e)
   | NewProph => NewProph
   | Resolve ex e1 e2 => Resolve (subst x v ex) (subst x v e1) (subst x v e2)
+  | ExternalCall fn e => ExternalCall fn (subst x v e)
   end.
 
 Definition subst' (mx : binder) (v : val) : expr → expr :=
@@ -725,7 +731,16 @@ Inductive base_step : expr → state → list observation → expr → state →
   | ResolveS p v e σ w σ' κs ts :
      base_step e σ κs (Val v) σ' ts →
      base_step (Resolve e (Val $ LitV $ LitProphecy p) (Val w)) σ
-               (κs ++ [(p, (v, w))]) (Val v) σ' ts.
+               (κs ++ [(p, (v, w))]) (Val v) σ' ts
+  | ExternalCallS fn v σ vret σ' :
+    (* external_step has not been defined yet
+    
+       the state σ now contains:
+       - heap: the heap belongs to current module, which remains unchanged in external function
+       - external_heap: the heap belongs to other modules, which may be changed in external function
+     *)
+    external_step fn v σ vret σ' ->
+    base_step (ExternalCall fn (Val v)) σ [] (of_val vret) σ' [].
 
 (** Basic properties about the language *)
 Global Instance fill_item_inj Ki : Inj (=) (=) (fill_item Ki).
