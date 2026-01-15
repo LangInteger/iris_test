@@ -577,6 +577,8 @@ Section interpreter.
     (* unsupported prophecy variable operations *)
     | NewProph => λ s, (inr (Unsupported "NewProph"), s)
     | Resolve _ _ _ => λ s, (inr (Unsupported "Resolve"), s)
+    (* leave the interpreter as is  *)
+    | ExternalCall _ _ => λ s, (inr (Unsupported "ExternalCall"), s)
     end
     end.
 End interpreter.

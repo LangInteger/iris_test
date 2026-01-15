@@ -120,6 +120,8 @@ Inductive expr :=
   (* Prophecy *)
   | NewProph
   | Resolve (e0 : expr) (e1 : expr) (e2 : expr) (* wrapped expr, proph, val *)
+  (* external function call *)
+  | ExternalCall (fname : string) (arg : expr)
 with val :=
   | LitV (l : base_lit)
   | RecV (f x : binder) (e : expr)
@@ -129,6 +131,19 @@ with val :=
 
 Bind Scope expr_scope with expr.
 Bind Scope val_scope with val.
+
+Inductive first_order_val : val → Prop :=
+| FOV_Lit l : first_order_val (LitV l)
+| FOV_Pair v1 v2 :
+    first_order_val v1 →
+    first_order_val v2 →
+    first_order_val (PairV v1 v2)
+| FOV_InjL v :
+    first_order_val v →
+    first_order_val (InjLV v)
+| FOV_InjR v :
+    first_order_val v →
+    first_order_val (InjRV v).
 
 (** An observation associates a prophecy variable (identifier) to a pair of
 values. The first value is the one that was returned by the (atomic) operation
@@ -260,6 +275,8 @@ Proof.
      | NewProph, NewProph => left _
      | Resolve e0 e1 e2, Resolve e0' e1' e2' =>
         cast_if_and3 (decide (e0 = e0')) (decide (e1 = e1')) (decide (e2 = e2'))
+     | ExternalCall fname arg, ExternalCall fname' arg' =>
+        cast_if_and (decide (fname = fname')) (decide (arg = arg'))
      | _, _ => right _
      end
    with gov (v1 v2 : val) {struct v1} : Decision (v1 = v2) :=
@@ -322,8 +339,8 @@ Proof.
      | Var x => GenLeaf (inl (inl x))
      | Rec f x e => GenNode 1 [GenLeaf (inl (inr f)); GenLeaf (inl (inr x)); go e]
      | App e1 e2 => GenNode 2 [go e1; go e2]
-     | UnOp op e => GenNode 3 [GenLeaf (inr (inr (inl op))); go e]
-     | BinOp op e1 e2 => GenNode 4 [GenLeaf (inr (inr (inr op))); go e1; go e2]
+     | UnOp op e => GenNode 3 [GenLeaf (inr (inr (inr (inl op)))); go e]
+     | BinOp op e1 e2 => GenNode 4 [GenLeaf (inr (inr (inr (inr op)))); go e1; go e2]
      | If e0 e1 e2 => GenNode 5 [go e0; go e1; go e2]
      | Pair e1 e2 => GenNode 6 [go e1; go e2]
      | Fst e => GenNode 7 [go e]
@@ -341,6 +358,8 @@ Proof.
      | FAA e1 e2 => GenNode 19 [go e1; go e2]
      | NewProph => GenNode 20 []
      | Resolve e0 e1 e2 => GenNode 21 [go e0; go e1; go e2]
+     (* not sure about the inr inl *)
+     | ExternalCall fname arg => GenNode 22 [GenLeaf (inr (inr (inl fname))); go arg]
      end
    with gov v :=
      match v with
@@ -359,8 +378,8 @@ Proof.
      | GenLeaf (inl (inl x)) => Var x
      | GenNode 1 [GenLeaf (inl (inr f)); GenLeaf (inl (inr x)); e] => Rec f x (go e)
      | GenNode 2 [e1; e2] => App (go e1) (go e2)
-     | GenNode 3 [GenLeaf (inr (inr (inl op))); e] => UnOp op (go e)
-     | GenNode 4 [GenLeaf (inr (inr (inr op))); e1; e2] => BinOp op (go e1) (go e2)
+     | GenNode 3 [GenLeaf (inr (inr (inr (inl op)))); e] => UnOp op (go e)
+     | GenNode 4 [GenLeaf (inr (inr (inr (inr op)))); e1; e2] => BinOp op (go e1) (go e2)
      | GenNode 5 [e0; e1; e2] => If (go e0) (go e1) (go e2)
      | GenNode 6 [e1; e2] => Pair (go e1) (go e2)
      | GenNode 7 [e] => Fst (go e)
@@ -378,6 +397,8 @@ Proof.
      | GenNode 19 [e1; e2] => FAA (go e1) (go e2)
      | GenNode 20 [] => NewProph
      | GenNode 21 [e0; e1; e2] => Resolve (go e0) (go e1) (go e2)
+     (* check line 349 also *)
+     | GenNode 22 [GenLeaf (inr (inr (inl fname))); e] => ExternalCall fname (go e)
      | _ => Val $ LitV LitUnit (* dummy *)
      end
    with gov v :=
@@ -392,7 +413,7 @@ Proof.
    for go).
  refine (inj_countable' enc dec _).
  refine (fix go (e : expr) {struct e} := _ with gov (v : val) {struct v} := _ for go).
- - destruct e as [v| | | | | | | | | | | | | | | | | | | | | |]; simpl; f_equal;
+ - destruct e as [v| | | | | | | | | | | | | | | | | | | | | | |]; simpl; f_equal;
      [exact (gov v)|done..].
  - destruct v; by f_equal.
 Qed.
@@ -444,7 +465,8 @@ Inductive ectx_item :=
   | FaaRCtx (e1 : expr)
   | ResolveLCtx (ctx : ectx_item) (v1 : val) (v2 : val)
   | ResolveMCtx (e0 : expr) (v2 : val)
-  | ResolveRCtx (e0 : expr) (e1 : expr).
+  | ResolveRCtx (e0 : expr) (e1 : expr)
+  | ExternalCallCtx (fn : string).
 
 (** Contextual closure will only reduce [e] in [Resolve e (Val _) (Val _)] if
 the local context of [e] is non-empty. As a consequence, the first argument of
@@ -484,6 +506,7 @@ Fixpoint fill_item (Ki : ectx_item) (e : expr) : expr :=
   | ResolveLCtx K v1 v2 => Resolve (fill_item K e) (Val v1) (Val v2)
   | ResolveMCtx ex v2 => Resolve ex e (Val v2)
   | ResolveRCtx ex e1 => Resolve ex e1 e
+  | ExternalCallCtx fn => ExternalCall fn e
   end.
 
 (** Substitution *)
@@ -513,6 +536,7 @@ Fixpoint subst (x : string) (v : val) (e : expr)  : expr :=
   | Fork e => Fork (subst x v e)
   | NewProph => NewProph
   | Resolve ex e1 e2 => Resolve (subst x v ex) (subst x v e1) (subst x v e2)
+  | ExternalCall fn e0 => ExternalCall fn (subst x v e0)
   end.
 
 Definition subst' (mx : binder) (v : val) : expr → expr :=
@@ -640,6 +664,10 @@ Proof.
   rewrite right_id insert_union_singleton_l. done.
 Qed.
 
+Inductive external_call : string → val → state → list observation → val → state → Prop :=
+| ExternalCallPure fn v σ v' :
+    external_call fn v σ [] v' σ.
+
 Inductive base_step : expr → state → list observation → expr → state → list expr → Prop :=
   | RecS f x e σ :
      base_step (Rec f x e) σ [] (Val $ RecV f x e) σ []
@@ -725,7 +753,12 @@ Inductive base_step : expr → state → list observation → expr → state →
   | ResolveS p v e σ w σ' κs ts :
      base_step e σ κs (Val v) σ' ts →
      base_step (Resolve e (Val $ LitV $ LitProphecy p) (Val w)) σ
-               (κs ++ [(p, (v, w))]) (Val v) σ' ts.
+               (κs ++ [(p, (v, w))]) (Val v) σ' ts
+  | ExternalCallS fn v σ κ v' :
+      first_order_val v →
+      first_order_val v' →
+      external_call fn v σ κ v' σ →
+      base_step (ExternalCall fn (Val v)) σ κ (Val v') σ [].
 
 (** Basic properties about the language *)
 Global Instance fill_item_inj Ki : Inj (=) (=) (fill_item Ki).

@@ -26,6 +26,7 @@ Fixpoint is_closed_expr (X : stringset) (e : expr) : bool :=
   | If e0 e1 e2 | Case e0 e1 e2 | CmpXchg e0 e1 e2 | Resolve e0 e1 e2 =>
      is_closed_expr X e0 && is_closed_expr X e1 && is_closed_expr X e2
   | NewProph => true
+  | ExternalCall _ e0 => is_closed_expr X e0
   end
 with is_closed_val (v : val) : bool :=
   match v with
@@ -61,6 +62,7 @@ Fixpoint subst_map (vs : gmap string val) (e : expr) : expr :=
   | FAA e1 e2 => FAA (subst_map vs e1) (subst_map vs e2)
   | NewProph => NewProph
   | Resolve e0 e1 e2 => Resolve (subst_map vs e0) (subst_map vs e1) (subst_map vs e2)
+  | ExternalCall fname e0 => ExternalCall fname (subst_map vs e0)
   end.
 
 (* Properties *)
@@ -166,6 +168,12 @@ Proof.
     intros [? ?]; apply elem_of_map_to_list.
 Qed.
 
+Lemma first_order_val_closed v :
+  first_order_val v → is_closed_val v.
+Proof.
+  induction 1; simpl; eauto.
+Qed.
+
 (* The stepping relation preserves closedness *)
 Lemma base_step_is_closed e1 σ1 obs e2 σ2 es :
   is_closed_expr ∅ e1 →
@@ -185,6 +193,7 @@ Proof.
   - select (_ !! _ = Some _) ltac:(fun H => by specialize (Clσ1 _ _ H)).
   - select (_ !! _ = Some _) ltac:(fun H => by specialize (Clσ1 _ _ H)).
   - case_match; try apply map_Forall_insert_2; by naive_solver.
+  - apply first_order_val_closed. auto.
 Qed.
 
 
