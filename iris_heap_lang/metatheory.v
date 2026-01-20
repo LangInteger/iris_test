@@ -193,7 +193,7 @@ Proof.
   - select (_ !! _ = Some _) ltac:(fun H => by specialize (Clσ1 _ _ H)).
   - select (_ !! _ = Some _) ltac:(fun H => by specialize (Clσ1 _ _ H)).
   - case_match; try apply map_Forall_insert_2; by naive_solver.
-  - apply first_order_val_closed. auto.
+  - apply first_order_val_closed. auto. 
 Qed.
 
 

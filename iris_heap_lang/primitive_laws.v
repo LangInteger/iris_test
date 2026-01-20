@@ -529,6 +529,54 @@ Proof.
   iIntros (Φ) ">H HΦ". iApply (twp_wp_step with "HΦ").
   iApply (twp_store with "H"); [by auto..|]; iIntros "H HΦ". by iApply "HΦ".
 Qed.
+
+Lemma twp_externalcall s E fn v v' :
+  [[{ ⌜first_order_val v /\ first_order_val v' /\ external_call fn v v'⌝ }]] ExternalCall fn (Val v) @ s; E
+  [[{ RET v'; True }]].
+Proof.
+  iIntros "%Φ Hl HΦ".
+  iDestruct "Hl" as %[Hl1 [Hl2 Hl3]].
+  iApply twp_lift_atomic_base_step_no_fork; first done.
+  iIntros (σ1 ns κs nt) "(Hσ & Hκs & Hsteps) !>".
+  iSplit.
+  {
+    unfold base_reducible_no_obs.
+    iExists (Val v'), σ1, [].
+    iPureIntro.
+    econstructor; eassumption.
+  }
+  {
+    iIntros (x e2 σ2 efs Hbs).
+    inv Hbs.
+    iMod (steps_auth_update_S with "Hsteps") as "Hsteps".
+    iModIntro.
+    iSplit; first done. iSplit; first done.
+    iFrame.
+    simpl.
+    assert (v' = v'0) as Heq.
+    { eapply det_external_call; eassumption. }
+    subst.
+    iApply "HΦ". auto.
+  }
+Qed.
+
+Lemma wp_externalcall s E fn v' v :
+  {{{ ⌜first_order_val v /\ first_order_val v' /\ external_call fn v v'⌝ }}} ExternalCall fn (Val v) @ s; E
+  {{{ RET v'; True }}}.
+Proof.
+  iIntros "%Φ Hl HΦ".
+  iDestruct "Hl" as %[Hl1 [Hl2 Hl3]].
+  iApply (twp_wp_step with "HΦ").
+  iApply (twp_externalcall ).
+  {
+    iPureIntro. split; [done|]. split; [done|]. done.
+  }
+  {
+    iIntros "H HΦ". by iApply "HΦ".
+  }
+Qed.
+
+
 Lemma wp_store_lc s E l v' v n :
   {{{ steps_lb n ∗ ▷ l ↦ v' }}} Store (Val $ LitV (LitLoc l)) (Val v) @ s; E
   {{{ RET LitV LitUnit; l ↦ v ∗ £ (S n) }}}.

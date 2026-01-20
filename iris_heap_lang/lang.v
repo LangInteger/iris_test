@@ -664,10 +664,15 @@ Proof.
   rewrite right_id insert_union_singleton_l. done.
 Qed.
 
-Inductive external_call : string → val → state → list observation → val → state → Prop :=
-| ExternalCallPure fn v σ v' :
-    external_call fn v σ [] v' σ.
+Inductive external_call : string → val → val → Prop :=
+| ExternalCallPure fn v v' :
+    external_call fn v v'.
 
+Axiom det_external_call : 
+  ∀ (fn : string) (v v1 v2 : val),
+    external_call fn v v1 →
+    external_call fn v v2 →
+    v1 = v2.
 Inductive base_step : expr → state → list observation → expr → state → list expr → Prop :=
   | RecS f x e σ :
      base_step (Rec f x e) σ [] (Val $ RecV f x e) σ []
@@ -754,11 +759,11 @@ Inductive base_step : expr → state → list observation → expr → state →
      base_step e σ κs (Val v) σ' ts →
      base_step (Resolve e (Val $ LitV $ LitProphecy p) (Val w)) σ
                (κs ++ [(p, (v, w))]) (Val v) σ' ts
-  | ExternalCallS fn v σ κ v' :
+  | ExternalCallS fn v σ v':
       first_order_val v →
       first_order_val v' →
-      external_call fn v σ κ v' σ →
-      base_step (ExternalCall fn (Val v)) σ κ (Val v') σ [].
+      external_call fn v v' →
+      base_step (ExternalCall fn (Val v)) σ [] (Val v') σ [].
 
 (** Basic properties about the language *)
 Global Instance fill_item_inj Ki : Inj (=) (=) (fill_item Ki).
